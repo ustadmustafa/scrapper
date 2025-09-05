@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import re
 import time
 import pandas as pd
+import json
 
 def extract_movie_series_names(url):
     """
@@ -177,6 +178,130 @@ def clean_movie_name(name):
     
     return ' '.join(english_parts).strip()
 
+def get_omdb_data(title, api_key="3f924d91"):
+    """
+    OMDB API'sinden film/dizi bilgilerini çeker
+    """
+    # Boşlukları alt çizgi ile değiştir
+    search_title = title.replace(' ', '_')
+    
+    url = f"https://www.omdbapi.com/?t={search_title}&apikey={api_key}"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get('Response') == 'True':
+            return data
+        else:
+            print(f"OMDB'de bulunamadı: {title}")
+            return None
+            
+    except requests.RequestException as e:
+        print(f"OMDB API hatası ({title}): {e}")
+        return None
+    except Exception as e:
+        print(f"Genel hata ({title}): {e}")
+        return None
+
+def parse_genres(genre_string):
+    """
+    Genre string'ini Genre1, Genre2, Genre3 şeklinde ayırır
+    """
+    if not genre_string or genre_string == "N/A":
+        return {"Genre1": "", "Genre2": "", "Genre3": ""}
+    
+    genres = [g.strip() for g in genre_string.split(',')]
+    
+    result = {"Genre1": "", "Genre2": "", "Genre3": ""}
+    
+    for i, genre in enumerate(genres[:3]):  # Maksimum 3 genre
+        result[f"Genre{i+1}"] = genre
+    
+    return result
+
+def enhance_movies_with_omdb_data(movies_series):
+    """
+    Film/dizi listesini OMDB verileri ile zenginleştirir
+    """
+    enhanced_data = []
+    
+    for i, item in enumerate(movies_series):
+        print(f"\nOMDB'de aranıyor ({i+1}/{len(movies_series)}): {item['name']}")
+        
+        # OMDB'den veri çek
+        omdb_data = get_omdb_data(item['name'])
+        
+        if omdb_data:
+            # Genre'leri ayır
+            genres = parse_genres(omdb_data.get('Genre', ''))
+            
+            # Zenginleştirilmiş veri oluştur
+            enhanced_item = {
+                'Type': item['type'],
+                'Title': omdb_data.get('Title', item['name']),
+                'Year': omdb_data.get('Year', ''),
+                'Rated': omdb_data.get('Rated', ''),
+                'Released': omdb_data.get('Released', ''),
+                'Runtime': omdb_data.get('Runtime', ''),
+                'Genre1': genres['Genre1'],
+                'Genre2': genres['Genre2'],
+                'Genre3': genres['Genre3'],
+                'Director': omdb_data.get('Director', ''),
+                'Writer': omdb_data.get('Writer', ''),
+                'Actors': omdb_data.get('Actors', ''),
+                'Plot': omdb_data.get('Plot', ''),
+                'Language': omdb_data.get('Language', ''),
+                'Country': omdb_data.get('Country', ''),
+                'Awards': omdb_data.get('Awards', ''),
+                'IMDB_Rating': omdb_data.get('imdbRating', ''),
+                'IMDB_Votes': omdb_data.get('imdbVotes', ''),
+                'IMDB_ID': omdb_data.get('imdbID', ''),
+                'Metascore': omdb_data.get('Metascore', ''),
+                'Poster': omdb_data.get('Poster', ''),
+                'Original_Text': item['original_text']
+            }
+            
+            print(f"✓ Bulundu: {enhanced_item['Title']} ({enhanced_item['Year']})")
+            print(f"  Genre: {enhanced_item['Genre1']}, {enhanced_item['Genre2']}, {enhanced_item['Genre3']}")
+            print(f"  IMDB Rating: {enhanced_item['IMDB_Rating']}")
+            
+        else:
+            # OMDB'de bulunamadı, orijinal veriyi kullan
+            enhanced_item = {
+                'Type': item['type'],
+                'Title': item['name'],
+                'Year': '',
+                'Rated': '',
+                'Released': '',
+                'Runtime': '',
+                'Genre1': '',
+                'Genre2': '',
+                'Genre3': '',
+                'Director': '',
+                'Writer': '',
+                'Actors': '',
+                'Plot': '',
+                'Language': '',
+                'Country': '',
+                'Awards': '',
+                'IMDB_Rating': '',
+                'IMDB_Votes': '',
+                'IMDB_ID': '',
+                'Metascore': '',
+                'Poster': '',
+                'Original_Text': item['original_text']
+            }
+            print(f"✗ Bulunamadı: {item['name']}")
+        
+        enhanced_data.append(enhanced_item)
+        
+        # API rate limiting için kısa bekleme
+        time.sleep(0.5)
+    
+    return enhanced_data
+
 def main():
     url = "https://www.doostihaa.com/page/1"
     
@@ -196,13 +321,31 @@ def main():
             print(f"Orijinal metin: {item['original_text']}")
             print("-" * 30)
         
+        print("\n" + "="*60)
+        print("OMDB API'sinden detaylı bilgiler çekiliyor...")
+        print("="*60)
+        
+        # OMDB verileri ile zenginleştir
+        enhanced_data = enhance_movies_with_omdb_data(movies_series)
+        
         # DataFrame oluştur
-        df = pd.DataFrame(movies_series)
+        df = pd.DataFrame(enhanced_data)
         
         # Excel'e kaydet
-        excel_filename = "doostihaa_movies_series.xlsx"
+        excel_filename = "doostihaa_movies_series_enhanced.xlsx"
         df.to_excel(excel_filename, index=False)
-        print(f"\nSonuçlar {excel_filename} dosyasına kaydedildi.")
+        print(f"\n" + "="*60)
+        print(f"Sonuçlar {excel_filename} dosyasına kaydedildi.")
+        print("="*60)
+        
+        # Özet istatistikler
+        found_count = len([item for item in enhanced_data if item['IMDB_Rating'] != ''])
+        not_found_count = len(enhanced_data) - found_count
+        
+        print(f"\nÖzet:")
+        print(f"Toplam film/dizi: {len(enhanced_data)}")
+        print(f"OMDB'de bulunan: {found_count}")
+        print(f"Bulunamayan: {not_found_count}")
         
     else:
         print("Hiç film/dizi bulunamadı.")
