@@ -178,7 +178,7 @@ def clean_movie_name(name):
     
     return ' '.join(english_parts).strip()
 
-def get_omdb_data(title, api_key="3f924d91"):
+def get_omdb_data(title, api_key="d29f42b4"):
     """
     OMDB API'sinden film/dizi bilgilerini çeker
     """
@@ -302,53 +302,99 @@ def enhance_movies_with_omdb_data(movies_series):
     
     return enhanced_data
 
-def main():
-    url = "https://www.doostihaa.com/page/1"
+def scrape_all_pages(start_page=1, end_page=3150, batch_size=100):
+    """
+    Tüm sayfaları tarar ve her 100 sayfada bir Excel dosyası oluşturur
+    """
+    all_movies_series = []
+    current_batch = []
+    batch_start = start_page
     
-    print("Doostihaa.com sitesinden film ve dizi isimleri çekiliyor...")
-    print(f"URL: {url}")
-    print("-" * 50)
+    print(f"Tüm sayfalar taranıyor: {start_page} - {end_page}")
+    print(f"Her {batch_size} sayfada bir Excel dosyası oluşturulacak")
+    print("="*80)
     
-    movies_series = extract_movie_series_names(url)
-    
-    if movies_series:
-        print(f"\nToplam {len(movies_series)} film/dizi bulundu:")
+    for page_num in range(start_page, end_page + 1):
+        url = f"https://www.doostihaa.com/page/{page_num}"
+        
+        print(f"\nSayfa {page_num} taranıyor...")
+        print(f"URL: {url}")
         print("-" * 50)
         
-        for item in movies_series:
-            print(f"Tür: {item['type']}")
-            print(f"İsim: {item['name']}")
-            print(f"Orijinal metin: {item['original_text']}")
-            print("-" * 30)
+        # Sayfadan film/dizi isimlerini çek
+        page_movies_series = extract_movie_series_names(url)
         
-        print("\n" + "="*60)
-        print("OMDB API'sinden detaylı bilgiler çekiliyor...")
-        print("="*60)
+        if page_movies_series:
+            print(f"Sayfa {page_num}'da {len(page_movies_series)} film/dizi bulundu")
+            current_batch.extend(page_movies_series)
+            all_movies_series.extend(page_movies_series)
+        else:
+            print(f"Sayfa {page_num}'da film/dizi bulunamadı")
         
-        # OMDB verileri ile zenginleştir
-        enhanced_data = enhance_movies_with_omdb_data(movies_series)
+        # Her 100 sayfada bir veya son sayfada Excel oluştur
+        if (page_num % batch_size == 0) or (page_num == end_page):
+            if current_batch:
+                batch_end = page_num
+                print(f"\n" + "="*80)
+                print(f"Batch {batch_start}-{batch_end} işleniyor...")
+                print(f"Toplam {len(current_batch)} film/dizi bulundu")
+                print("="*80)
+                
+                # OMDB verileri ile zenginleştir
+                enhanced_data = enhance_movies_with_omdb_data(current_batch)
+                
+                # DataFrame oluştur
+                df = pd.DataFrame(enhanced_data)
+                
+                # Excel dosya adı
+                excel_filename = f"doostihaa_{batch_start}_{batch_end}_movies_series.xlsx"
+                df.to_excel(excel_filename, index=False)
+                
+                # Özet istatistikler
+                found_count = len([item for item in enhanced_data if item['IMDB_Rating'] != ''])
+                not_found_count = len(enhanced_data) - found_count
+                
+                print(f"\n✓ {excel_filename} oluşturuldu!")
+                print(f"  Toplam: {len(enhanced_data)}")
+                print(f"  OMDB'de bulunan: {found_count}")
+                print(f"  Bulunamayan: {not_found_count}")
+                print("="*80)
+                
+                # Sonraki batch için hazırlık
+                current_batch = []
+                batch_start = page_num + 1
+            else:
+                print(f"Batch {batch_start}-{page_num} boş, Excel oluşturulmadı")
+                batch_start = page_num + 1
         
-        # DataFrame oluştur
-        df = pd.DataFrame(enhanced_data)
-        
-        # Excel'e kaydet
-        excel_filename = "doostihaa_movies_series_enhanced.xlsx"
-        df.to_excel(excel_filename, index=False)
-        print(f"\n" + "="*60)
-        print(f"Sonuçlar {excel_filename} dosyasına kaydedildi.")
-        print("="*60)
-        
-        # Özet istatistikler
-        found_count = len([item for item in enhanced_data if item['IMDB_Rating'] != ''])
-        not_found_count = len(enhanced_data) - found_count
-        
-        print(f"\nÖzet:")
-        print(f"Toplam film/dizi: {len(enhanced_data)}")
-        print(f"OMDB'de bulunan: {found_count}")
-        print(f"Bulunamayan: {not_found_count}")
-        
-    else:
-        print("Hiç film/dizi bulunamadı.")
+        # Sayfa arası bekleme (rate limiting)
+        time.sleep(1)
+    
+    return all_movies_series
+
+def main():
+    print("Doostihaa.com - Tüm Sayfalar Tarayıcısı")
+    print("="*80)
+    print("Bu işlem uzun sürebilir (yaklaşık 1-2 saat)")
+    print("Her 100 sayfada bir Excel dosyası oluşturulacak")
+    print("Page/101'den başlayacak (1-100 zaten tamamlandı)")
+    print("="*80)
+    
+    # Kullanıcıdan onay al
+    response = input("Devam etmek istiyor musunuz? (y/n): ").lower().strip()
+    if response != 'y':
+        print("İşlem iptal edildi.")
+        return
+    
+    # Tüm sayfaları tara (page/101'den başla)
+    all_movies_series = scrape_all_pages(101, 3150, 100)
+    
+    print(f"\n" + "="*80)
+    print("TÜM İŞLEM TAMAMLANDI!")
+    print("="*80)
+    print(f"Toplam {len(all_movies_series)} film/dizi işlendi")
+    print("Tüm Excel dosyaları oluşturuldu")
+    print("="*80)
 
 if __name__ == "__main__":
     main()
